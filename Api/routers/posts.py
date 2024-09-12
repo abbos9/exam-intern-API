@@ -6,13 +6,13 @@ from sqlalchemy.orm import Session,joinedload
 from directories.posts import create_dir as post_create_dir
 from directories.posts import create_post_images_dir 
 from models.auth_models import UsersTable
-from models.posts_model import PostCommentTable, PostLikeTable, PostSaveTable, PostTable, PostImageTable
+from models.posts_model import CategoryTable, PostCommentTable, PostLikeTable, PostSaveTable, PostTable, PostImageTable
 from schemas.posts_chema import (BaseCommentSchema, CommentSchema, CreateCommentSchema, CreateLikeSchema, DeleteSchema, DetailResponseSchema, SaveSchema, UpdateSchema, PostSchema,CommentDeleteSchema,
 ResponsePostSchema,CommentUpdateSchema, LikeSchema, BaseResponseSchema, UuidSchema)
 from database import get_db
 from utils.auth_utils import JWTBearer, JWTHandler
 from fastapi.responses import FileResponse
-from general_api.descriptions import  create_post_desc
+from pydantic import conint
 
 
 router = APIRouter(
@@ -27,36 +27,34 @@ user_dependency = Annotated[UsersTable, Depends(JWTBearer())]
 # POSTS
 
 # Read all posts
-@router.get("/", response_model=list[ResponsePostSchema])
+@router.get("/", response_model=list[ResponsePostSchema], status_code=status.HTTP_200_OK, description="Return all posts")
 async def get_posts(db:db_dependency, ):
     posts = db.execute(select(PostTable).join(UsersTable)).scalars().all()
     return posts
 
 # Read a single post by ID
-@router.post("/{post_id}/", response_model=DetailResponseSchema)
+@router.post("/{post_id}/", response_model=DetailResponseSchema, status_code=status.HTTP_200_OK, description="Retrieve a post with its details")
 async def get_post(db:db_dependency,post:BaseResponseSchema, ):
-    post = db.query(PostTable).options(
-        joinedload(PostTable.images),  # Eager load related images
-        joinedload(PostTable.user),  # Eager load the user who created the post
-        joinedload(PostTable.comments),  # Eager load related comments
-        joinedload(PostTable.likes),  # Eager load related likes
-        joinedload(PostTable.saves)  # Eager load related saves
-    ).filter(PostTable.id == post.id).first()
+    post = db.query(PostTable).filter(PostTable.id == post.id).first()
     if post is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
     return post
 
-
-@router.post("/post")
+# write a new
+@router.post("/post",status_code=status.HTTP_201_CREATED )
 async def create_post(
     db: db_dependency,
     file: UploadFile= File(...),
     images: list[UploadFile]= File(...),
     title: str = Form(...),
     description: str = Form(...),
-    category_id: int = Form(...),
+    category_id: int = Form(ge=1),
     user: UsersTable = Depends(JWTHandler.get_employee),
 ):
+    category = db.execute(select(CategoryTable).where(CategoryTable.id == category_id)).scalar()
+    
+    if not category:
+        raise HTTPException(detail="this category is not found", status_code=status.HTTP_400_BAD_REQUEST)
     post = PostTable(
         user_id=user.id,
         file=None,
@@ -166,19 +164,24 @@ async def update_post(
     }
 
 
+
+
 # Delete a post by ID
-@router.delete("/{post_id}", response_model=dict)
+@router.delete("/{post_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_post(
     db: db_dependency, 
     schema: DeleteSchema,                
     user: UsersTable = Depends(JWTHandler.get_employee)):
-
-    print(schema.post_id)
     
     post = db.query(PostTable).filter(PostTable.id == schema.post_id).first()
     
     if not post:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
+    
+    # Check if the current user is allowed to delete this post
+    # if post.user_id != user.id:
+    #     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You are not allowed to delete this post")
+
     
     try:
         db.delete(post)
@@ -192,11 +195,11 @@ async def delete_post(
 # COMMENTS
 
 # Write comments
-@router.post("/comment", response_model=CreateCommentSchema)
+@router.post("/comment", response_model=CommentSchema, status_code=status.HTTP_201_CREATED)
 async def write_comment(
                         db:db_dependency,
                         posts_schema:CreateCommentSchema,
-                        user: UsersTable = Depends(JWTBearer())):
+                        user: user_dependency):
 
     post = db.query(PostTable).filter(PostTable.id == posts_schema.post_id).first()
     
@@ -215,11 +218,11 @@ async def write_comment(
 
 
 # Update comment
-@router.put('/comment/{comment_id}', response_model=CommentUpdateSchema)
+@router.put('/comment/{comment_id}', response_model=CommentUpdateSchema, status_code=status.HTTP_200_OK)
 async def update_comment(
     comment_update: CommentUpdateSchema,
     db: db_dependency,
-    user: UsersTable = Depends(JWTBearer())
+    user: user_dependency
 ):
     comment = db.query(PostCommentTable).filter(PostCommentTable.id == comment_update.id).first()
 
@@ -241,11 +244,11 @@ async def update_comment(
 
 
 # Delete comment
-@router.delete("/comment/{comment_id}", status_code=204)
+@router.delete("/comment/{comment_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_comment(
     comment_schema:CommentDeleteSchema,
     db: db_dependency,
-    user: UsersTable = Depends(JWTBearer())
+    user: user_dependency
 ):
     comment = db.query(PostCommentTable).filter(PostCommentTable.id == comment_schema.id).first()
 
@@ -263,13 +266,13 @@ async def delete_comment(
 
     return {"message": "Comment deleted successfully"}
 
-# get comment
-@router.post("/{post_id}/comment", response_model=list[CommentSchema])
-async def get_comments(schema: BaseCommentSchema, db: db_dependency):
-    comments = db.execute(select(PostCommentTable).where(PostCommentTable.post_id == schema.id)).scalars().all()
+# get user's comment
+@router.post("/my/comment", response_model=list[CommentSchema], status_code=status.HTTP_200_OK, description="get user's comment")
+async def get_comments(db: db_dependency, user:user_dependency):
+    comments = db.execute(select(PostCommentTable).where(PostCommentTable.user_id == user.id)).scalars().all()
 
     if not comments:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No comments found for this post")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No comments found for this account")
 
     return comments
 
@@ -278,8 +281,8 @@ async def get_comments(schema: BaseCommentSchema, db: db_dependency):
 
 # Create like
 
-@router.post('/like/{post_id}', response_model=LikeSchema)
-async def create_like(db:db_dependency,schema:CreateLikeSchema,user:UsersTable = Depends(JWTBearer())):
+@router.post('/like/{post_id}', response_model=LikeSchema, status_code=status.HTTP_201_CREATED)
+async def create_like(db:db_dependency,schema:CreateLikeSchema,user:user_dependency):
     post = db.execute(select(PostTable).where(PostTable.id == schema.post_id)).scalar()
 
     if not post:
@@ -305,10 +308,10 @@ async def create_like(db:db_dependency,schema:CreateLikeSchema,user:UsersTable =
     return new_like
 
 # Get user's liked posts
-@router.get('/user/likes', response_model=list[ResponsePostSchema])
+@router.get('/user/likes', response_model=list[ResponsePostSchema], description="user's liked posts")
 async def user_like(
     db: db_dependency,
-    user: UsersTable = Depends(JWTBearer())
+    user: user_dependency
 ):
     
     liked_posts = db.execute(select(PostTable).join(PostLikeTable,).where(PostLikeTable.user_id == user.id)).scalars().all()
@@ -318,8 +321,8 @@ async def user_like(
 
 # Save
 
-@router.post("/save/post", response_model=SaveSchema)
-async def create_save(db: db_dependency, schema: SaveSchema, user: UsersTable = Depends(JWTBearer())):
+@router.post("/save/post", response_model=SaveSchema,status_code=status.HTTP_201_CREATED, description="save a post")
+async def create_save(db: db_dependency, schema: SaveSchema, user: user_dependency):
     post = db.execute(select(PostTable).where(PostTable.id == schema.post_id)).scalar()
 
     if not post:
@@ -349,8 +352,8 @@ async def create_save(db: db_dependency, schema: SaveSchema, user: UsersTable = 
 
 
 
-@router.get('/saved', response_model=list[ResponsePostSchema])
-async def get_saved_posts(db:db_dependency, user: UsersTable = Depends(JWTBearer())):
+@router.get('/saved', response_model=list[ResponsePostSchema], status_code=status.HTTP_200_OK, description="take the saved posts")
+async def get_saved_posts(db:db_dependency, user: user_dependency):
 
     saved_posts = db.execute(select(PostTable).join(PostSaveTable,).where(PostSaveTable.user_id == user.id)).scalars().all()
 

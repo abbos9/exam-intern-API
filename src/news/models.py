@@ -23,7 +23,7 @@ class Post(BaseModel):
 
 class PostImage(BaseModel):
     post = models.ForeignKey(Post, on_delete=models.CASCADE)
-    image = models.ImageField(upload_to='post_images/')
+    image = models.ImageField(upload_to='post_images/', null=True)
     user = models.ForeignKey(User, on_delete=models.CASCADE, null=True)
 
     def __str__(self):
@@ -37,7 +37,7 @@ class PostComment(BaseModel):
     comment = models.TextField()
 
     def __str__(self):
-        return f'{self.user} on {self.text}'
+        return f'{self.user} on {self.comment}'
 
 
 class PostLike(BaseModel):
@@ -49,7 +49,7 @@ class PostLike(BaseModel):
 
     
     def __str__(self):
-        return self.user
+        return self.user.username
 
 
 class PostSave(BaseModel):

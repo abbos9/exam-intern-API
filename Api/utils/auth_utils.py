@@ -19,12 +19,10 @@ oauth2_bearer = HTTPBearer()
 db_dependency = Annotated[Session, Depends(get_db)]
 
 
-def create_access_token(username: str, user_id: int, first_name: str, last_name: str, expires_delta: timedelta, role:str):
+def create_access_token(username: str, user_id: int, expires_delta: timedelta, role:str):
     encode = {
         "sub": username,
         "id": user_id,
-        "first_name": first_name,
-        "last_name": last_name,
         "role": role,
         "exp": datetime.utcnow() + expires_delta
     }

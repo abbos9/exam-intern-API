@@ -11,6 +11,7 @@ from general_api.config import Tashkent_tz
 from models.auth_models import UsersTable
 from schemas.auth_shema import CreateUserSchema, TokenSchema, UserResponseSchema, UserLoginSchema, UserVerifications
 from utils.auth_utils import JWTBearer, bcrypt_context, authenticate_user, create_access_token
+from general_api.descriptions import create_user_desc_post, user_login_desc_post,user_verifications_desc_post
 
 load_dotenv()
 
@@ -23,7 +24,7 @@ router = APIRouter(
 
 db_dependency = Annotated[Session, Depends(get_db)]
 
-@router.post("/signup", status_code=status.HTTP_201_CREATED)
+@router.post("/signup", status_code=status.HTTP_201_CREATED, description=create_user_desc_post)
 async def signup(db: db_dependency, create_user_schema: CreateUserSchema):
     try:
         create_user_model = UsersTable(
@@ -46,23 +47,23 @@ async def signup(db: db_dependency, create_user_schema: CreateUserSchema):
 
 
 
-@router.post('/token/', response_model=TokenSchema)
+@router.post('/token/', response_model=TokenSchema, status_code=status.HTTP_201_CREATED, description=user_login_desc_post)
 async def signin_by_access_token(db: db_dependency, data: UserLoginSchema):
     user = authenticate_user(db, data.username, data.password)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate user.")
-    token = create_access_token(user.username, user.id, user.first_name, user.last_name, timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES), user.role)
+    token = create_access_token(user.username, user.id,timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES), user.role)
     return {
         'access_token': token,
         'token_type': 'Bearer'
     }
 
-@router.get("/me/", response_model=UserResponseSchema)
+@router.get("/me/", response_model=UserResponseSchema, status_code=status.HTTP_200_OK)
 async def get_me(current_user: UserResponseSchema = Depends(JWTBearer())):
     return current_user
 
 
-@router.put("/password/change", status_code=status.HTTP_201_CREATED, response_model=UserResponseSchema)
+@router.put("/password/change", status_code=status.HTTP_201_CREATED, response_model=UserResponseSchema, description=user_verifications_desc_post)
 async def change_password(db: db_dependency, user_ver:UserVerifications, current_user: UserResponseSchema = Depends(JWTBearer())):
     user = db.query(UsersTable).filter(UsersTable.id == current_user.id).first()
     if not user:

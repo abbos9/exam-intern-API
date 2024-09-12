@@ -1,18 +1,38 @@
-create_post_desc_post = """
+create_user_desc_post = """
 ***POST*** \n
-Create Post \n
-requires:
-- description
-- file
+Create User \n
+requires: 
+- username
+- first_name
+- last_name
+- password
+- email
+- phone_num
+- role
+- gender
 """
 
 
-create_post_desc = """
-***GET*** \n
-GET  Post \n
-response: \n
-- user(owner)
-- data of post
-- comments
-- likes
+
+
+user_login_desc_post = """
+***POST*** \n
+User Login \n
+requires:
+- username
+- password
+
+Create Token \n
+response:
+- access_token
+- token_type
+
+"""
+
+user_verifications_desc_post = """
+***PUT*** \n
+User Verifications (Password Change) \n
+requires:
+- password
+- new_password
 """
