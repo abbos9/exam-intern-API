@@ -40,6 +40,31 @@ async def get_post(db:db_dependency,post:BaseResponseSchema, ):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
     return post
 
+
+# get posts by category 
+@router.post("/category", response_model=list[ResponsePostSchema], status_code=status.HTTP_200_OK, description="Get post by category")
+async def get_post_by_category(db:db_dependency, data: CategorySchema):
+    # Fetch the category to check if it exists
+    category = db.execute(select(CategoryTable).where(CategoryTable.id == data.category_id)).scalar()
+    
+    if not category:
+        raise HTTPException(detail="This category is not found", status_code=status.HTTP_400_BAD_REQUEST)
+    
+    # Fetch posts related to the category
+    posts = db.query(PostTable).filter(PostTable.category_id == data.category_id).all()
+
+    if not posts:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No posts found for this category")
+    
+    return posts  # Return the list of Post objects
+
+# get categories
+@router.get("/categories", response_model=list[Category], status_code=status.HTTP_200_OK, description="Return all categories")
+async def get_posts(db:db_dependency):
+    category = db.execute(select(CategoryTable)).scalars().all()
+    return category
+
+
 # write a new
 @router.post("/post",status_code=status.HTTP_201_CREATED )
 async def create_post(
@@ -287,25 +312,23 @@ async def create_like(db:db_dependency,schema:CreateLikeSchema,user:user_depende
 
     if not post:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
-
-    existing_like = db.execute(select(PostLikeTable).where(PostLikeTable.post_id == schema.post_id, PostLikeTable.user_id == user.id)).scalar()
-
-    if existing_like:
-        db.delete(existing_like)
-        db.commit()
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Like is Deleted')
-
-
-    new_like = PostLikeTable(
+    try:
+        new_like = PostLikeTable(
         user_id = user.id,
         post_id=post.id,
-    )
-    if not existing_like:
+        )
         db.add(new_like)
         db.commit()
         db.refresh(new_like)
-
-    return new_like
+        return new_like
+    except IntegrityError:
+        db.rollback()  # Откатываем транзакцию, чтобы избежать конфликтов
+        existing_like = db.execute(
+            select(PostLikeTable).where(PostLikeTable.post_id == schema.post_id, PostLikeTable.user_id == user.id)
+        ).scalar()
+        db.delete(existing_like)
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_200_OK, detail="Like removed successfully")
 
 # Get user's liked posts
 @router.get('/user/likes', response_model=list[ResponsePostSchema], description="user's liked posts")
@@ -329,25 +352,22 @@ async def create_save(db: db_dependency, schema: SaveSchema, user: user_dependen
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=" post not found" )
 
 
+    try:
+        new_save = PostSaveTable(
+        user_id = user.id,
+        post_id=post.id,
+        )
+        db.add(new_save)
+        db.commit()
+        db.refresh(new_save)
+        return new_save
+    except IntegrityError:
+        db.rollback()  # Откатываем транзакцию, чтобы избежать конфликтов
+        saved_post = db.execute(select(PostSaveTable).where(PostSaveTable.post_id == schema.post_id, PostSaveTable.user_id == user.id)).scalar()
 
-    saved_post = db.execute(select(PostSaveTable).where(PostSaveTable.post_id == schema.post_id, PostSaveTable.user_id == user.id)).scalar()
-    
-
-    if saved_post:
         db.delete(saved_post)
         db.commit()
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Unsaved')
-
-
-    new_save = PostSaveTable(
-        user_id = user.id,
-        post_id= schema.post_id
-    )
-    db.add(new_save)
-    db.commit()
-    db.refresh(new_save)
-
-    return new_save
+        raise HTTPException(status_code=status.HTTP_200_OK, detail="Unsaved successfully")
 
 
 
